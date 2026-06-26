@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+
+# Local configuration/secrets
+.env
+.env.local
+
+# Docker files (Optional cache, compose local override)
+.docker/
+docker-compose.override.yml
+
+# Heavy Datasets (Ignore datasets to prevent GitHub file size limit issues)
+data/
+# Ignore trained weights models
+models/
