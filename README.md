@@ -17,21 +17,36 @@ graph TD
 
 ---
 
-## 📈 Modeling & Data Leakage Resolution
+## 🧠 Engineering Thought Process & Implementation Steps
 
-I trained and compared **Random Forest, XGBoost, and LightGBM** models across context-rich datasets.
+To build a robust, real-time machine learning system, the implementation followed a structured progression from exploratory analysis to production deployment:
 
-### The Leakage Loophole & The Fix
-When building rolling customer spend deviation statistics (`Amount / User Average Spend`), computing ratios globally leaks future target indicators from test splits into the training parameters, producing a false PR-AUC of `0.999`. 
+### Step 1: Historical Data Exploration & Model Comparison
+* **Objective:** Identify the optimal classifier configuration to balance inference latency with model reliability.
+* **Process:** Conducted benchmark training runs comparing **Random Forest, XGBoost, and LightGBM** models using the historical dataset ([fraud_model_comparison.ipynb](file:///D:/SideProject/FraudCreditCardDectector/notebooks/fraud_model_comparison.ipynb)).
+* **Outcome:** The Random Forest Classifier was selected as the champion model. It achieved superior predictive performance and stable inference characteristics suitable for low-latency lookups.
 
-* **My Resolution:** I refactored the split strategy—cardholder baseline averages are computed **strictly on the training split** and mapped onto test splits to guarantee chronological isolation. This yielded a realistic and highly robust **`0.93` PR-AUC** (Random Forest model).
+### Step 2: Identification & Resolution of Data Leakage
+* **Problem:** Rolling customer spend metrics (e.g., `Amount / User Average Spend`) computed globally leak future target indicators into training parameters. This resulted in an artificially inflated, unrealistic validation PR-AUC of `0.999`.
+* **The Fix:** Refactored the data splitting strategy within [save_model.py](file:///D:/SideProject/FraudCreditCardDectector/src/save_model.py). Historical spend profiles (`user_profiles.json`) are compiled **strictly from the training split**. These computed training baselines are then mapped onto test distributions, ensuring complete chronological isolation.
+* **Result:** Achieved a realistic and production-stable **`0.93` PR-AUC** under strict leakage-free conditions.
 
-### 🛠️ Production Engineering Highlights
-To move this system beyond a sandbox demo, I implemented three key reliability and performance enhancements:
-* **Active Rolling Windows & TTL Caching:** Redis velocity keys are configured with a 24-hour Time-to-Live (TTL) expiration window upon creation. This bounds memory usage to active cardholders, prevents memory leaks, and correctly measures rolling transaction frequency.
-* **Deterministic Temporal Parsing:** Cylical time features (`hour_sin`, `hour_cos`, `day_of_week`) are extracted directly from the incoming event timestamp payload instead of the server system clock, protecting the model from network transmission delays or clock drift.
-* **Graceful Redis Failover Resilience:** If the Redis cluster drops offline, the FastAPI service degrades gracefully—logging the error and falling back to default velocity averages to complete the prediction rather than failing with an `HTTP 500` error and blocking transaction pipelines.
+### Step 3: Architecture Selection & Production Feature Store Design
+* **Objective:** Enable sub-10ms latency for feature computation and inference during active swiping events.
+* **Solution:** 
+  * **Redis Feature Store:** Selected Redis to store transient, stateful rolling transaction velocity fields. This avoids database overhead and handles high concurrency.
+  * **24-Hour Sliding Expiration (TTL):** Velocity counters expire automatically after 24 hours to prevent memory leaks and maintain active-only user records.
+  * **Stateless REST Layer:** Implemented the API using FastAPI to benefit from asynchronous requests and keep microservices lightweight.
 
+### Step 4: Resilient Edge-Case Engineering
+* **Redis Outage Graceful Degradation:** Modified the scoring logic in [app.py](file:///D:/SideProject/FraudCreditCardDectector/src/app.py) to wrap Redis operations in try-except blocks. If the Redis server drops offline, the FastAPI service logs the error and gracefully falls back to default velocity averages (`user_tx_count = 1`) instead of failing with an `HTTP 500` error.
+* **Time Drift & Clock Sync Isolation:** Cyclical time coordinates (`hour_sin`, `hour_cos`, `day_of_week`) are derived deterministically from the payload’s timestamp rather than the serving machine's local clock. This shields the pipeline from network delays and container system clock discrepancies.
+
+### Step 5: Containerized Orchestration & End-to-End Testing
+* Created a multi-container environment via `docker-compose.yml` hosting:
+  * **`web`**: Runs the FastAPI app (`app.py`) inside a lightweight Python environment.
+  * **`redis`**: Instantiates a memory-cached instance acting as the real-time feature store.
+* Developed a transaction event simulator ([demo_stream.py](file:///D:/SideProject/FraudCreditCardDectector/src/demo_stream.py)) that feeds transaction streams into the running microservices to validate end-to-end integration and measure latency under load.
 
 ---
 
@@ -51,6 +66,7 @@ To move this system beyond a sandbox demo, I implemented three key reliability a
   * Directory containing exported binaries: Random Forest model (`random_forest_model.pkl`), LabelEncoder (`label_encoder.pkl`), and cardholder spending profiles (`user_profiles.json`).
 * **`Dockerfile` & `docker-compose.yml`**
   * Multi-container orchestration setting up the web app and database cache.
+
 
 ---
 
